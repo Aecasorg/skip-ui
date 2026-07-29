@@ -51,8 +51,12 @@ import androidx.compose.ui.platform.LocalLayoutDirection
             }
             // Resolve adaptive colors under this presentation's preferred color scheme.
             rootModifier = rootModifier.background((backgroundColor ?? Color.background).colorImpl())
-                .onGloballyPositionedInWindow {
-                    presentationBounds.value = $0
+                .onGloballyPositionedInWindow { bounds in
+                    // Guard against sub-pixel jitter: the presented content below is gated on
+                    // this state, so unfiltered writes can recompose in a loop while idle
+                    if !bounds.isApproximatelyEqual(to: presentationBounds.value) {
+                        presentationBounds.value = bounds
+                    }
                 }
             Box(modifier: rootModifier) {
                 guard presentationBounds.value != Rect.Zero else {
