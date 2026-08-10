@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import android.view.WindowManager
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.PaddingValues
@@ -134,7 +135,12 @@ private let AlertDialogMaxWidth: Dp = 560.dp
         ModalBottomSheet(onDismissRequest: onDismissRequest, sheetState: sheetState, sheetMaxWidth: sheetMaxWidth, sheetGesturesEnabled: !interactiveDismissDisabled, containerColor: androidx.compose.ui.graphics.Color.Unspecified, shape: shape, dragHandle: nil, contentWindowInsets: { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) }, properties: properties) {
             
             SyncSystemBarsWithTheme()
-            
+
+            // CX-4954: hand touch back to the presenter as soon as this sheet starts
+            // sliding away, so a tap made during the animation is not swallowed by the
+            // departing dialog window
+            ReleaseWindowTouchWhileDismissing(isDismissing: sheetState.targetValue == SheetValue.Hidden)
+
             let verticalSizeClass = EnvironmentValues.shared.verticalSizeClass
             let isEdgeToEdge = EnvironmentValues.shared._isEdgeToEdge == true
             let sheetDepth = EnvironmentValues.shared._sheetDepth
@@ -250,6 +256,34 @@ private let AlertDialogMaxWidth: Dp = 560.dp
     }
 }
 
+/// Stop the presentation's dialog window intercepting touches once it has started
+/// sliding away.
+///
+/// A `ModalBottomSheet` lives in its own dialog window, which stays touchable for the
+/// whole hide animation. The window covers the presenter, so the first tap a user makes
+/// after dismissing lands on the departing sheet and is silently discarded — with a
+/// ~300ms tween plus settle, that reads as "I have to tap twice". Clearing
+/// `FLAG_NOT_TOUCHABLE` again when the sheet is visible keeps normal interaction
+/// untouched; nothing inside the sheet needs input while it is animating out.
+///
+/// Keyed on the sheet's `targetValue` rather than the presenter's binding so it covers
+/// every dismiss route — programmatic, back, scrim tap and swipe — including the ones
+/// where Material3 reports the dismissal only after the animation completes.
+@Composable func ReleaseWindowTouchWhileDismissing(isDismissing: Bool) {
+    let view = LocalView.current
+    DisposableEffect(isDismissing) {
+        let window = (view.parent as? DialogWindowProvider)?.window
+        if isDismissing {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        }
+    }
+}
+
 @Composable private func SyncSystemBarsWithTheme() {
     let view = LocalView.current
     let dark = MaterialTheme.colorScheme.background.luminance() < 0.5
@@ -317,6 +351,10 @@ final class DisableScrollToDismissConnection : NestedScrollConnection {
         let currentIsPresented = rememberUpdatedState(isPresented)
         let onDismissRequest: () -> Void = remember { { currentIsPresented.value.set(false) } }
         ModalBottomSheet(onDismissRequest: onDismissRequest, sheetState: sheetState, containerColor: androidx.compose.ui.graphics.Color.Transparent, dragHandle: nil, contentWindowInsets: { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) }) {
+            // CX-4954: release touch as soon as this dialog starts sliding away — see
+            // ReleaseWindowTouchWhileDismissing
+            ReleaseWindowTouchWhileDismissing(isDismissing: sheetState.targetValue == SheetValue.Hidden)
+
             // Collect buttons and message text. Evaluated inside the dialog's own composition:
             // in the presenter's scope these full evaluations re-ran the actions and message
             // view bodies on every presenter recomposition while the dialog was open
