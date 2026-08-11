@@ -64,7 +64,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import android.util.Log
 import android.view.WindowManager
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
@@ -140,7 +139,6 @@ private let AlertDialogMaxWidth: Dp = 560.dp
             // CX-4954: hand touch back to the presenter as soon as this sheet starts
             // sliding away, so a tap made during the animation is not swallowed by the
             // departing dialog window
-            Log.d("SkipUI.DismissTouch", "sheet lambda: target=\(sheetState.targetValue) current=\(sheetState.currentValue) isVisible=\(sheetState.isVisible) isPresentedValue=\(isPresentedValue)")
             ReleaseWindowTouchWhileDismissing(isDismissing: sheetState.targetValue == SheetValue.Hidden)
 
             let verticalSizeClass = EnvironmentValues.shared.verticalSizeClass
@@ -273,19 +271,14 @@ private let AlertDialogMaxWidth: Dp = 560.dp
 /// where Material3 reports the dismissal only after the animation completes.
 @Composable func ReleaseWindowTouchWhileDismissing(isDismissing: Bool) {
     let view = LocalView.current
-    Log.d("SkipUI.DismissTouch", "compose isDismissing=\(isDismissing)")
     DisposableEffect(isDismissing) {
-        let provider = view.parent as? DialogWindowProvider
-        let window = provider?.window
-        Log.d("SkipUI.DismissTouch", "effect isDismissing=\(isDismissing) providerFound=\(provider != nil) windowFound=\(window != nil)")
+        let window = (view.parent as? DialogWindowProvider)?.window
         if isDismissing {
             window?.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
-            Log.d("SkipUI.DismissTouch", "addFlags NOT_TOUCHABLE applied=\(window != nil) flags=\(window?.attributes?.flags ?? -1)")
         } else {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         }
         onDispose {
-            Log.d("SkipUI.DismissTouch", "dispose (isDismissing=\(isDismissing))")
             window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         }
     }
