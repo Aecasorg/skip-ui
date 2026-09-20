@@ -22,8 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -59,6 +61,37 @@ import androidx.compose.ui.platform.LocalLayoutDirection
                     if !bounds.isApproximatelyEqual(to: presentationBounds.value) {
                         presentationBounds.value = bounds
                     }
+                }
+                // Open the content gate on the FIRST layout pass, even when this root is
+                // positioned outside the window.
+                //
+                // `boundsInWindow()` is ancestor-clipped and coerced into the window, so it
+                // degenerates to Rect.Zero whenever the root sits off-window — which is exactly
+                // where a sheet sits at its Hidden anchor — and `onGloballyPositionedInWindow`
+                // drops Rect.Zero. `presentationBounds` therefore stays Zero and the `guard`
+                // below leaves ALL presented content uncomposed: the measured "sheet slides in
+                // but its body is blank" failure after a fast dismiss/re-present.
+                //
+                // Seed from UNCLIPPED geometry (`size` + `localToWindow`) and only while the
+                // value is still Zero, so the clipped callback above stays authoritative as soon
+                // as it yields a real rect. Deliberately a PresentationRoot-local fallback rather
+                // than a change to the shared `onGloballyPositionedInWindow`, which Navigation,
+                // TabView and GeometryReader also use.
+                //
+                // Known cost, accepted for now: while off-window this rect carries the real
+                // (off-screen) position, so the first composition's safe-area maths is computed
+                // from it and is corrected by the next callback. That trades one extra content
+                // composition for content existing at all.
+                .onGloballyPositioned { coordinates in
+                    guard presentationBounds.value == Rect.Zero else {
+                        return
+                    }
+                    let size = coordinates.size
+                    guard size.width > 0 && size.height > 0 else {
+                        return
+                    }
+                    let topLeft = coordinates.localToWindow(Offset.Zero)
+                    presentationBounds.value = Rect(left: topLeft.x, top: topLeft.y, right: topLeft.x + Float(size.width), bottom: topLeft.y + Float(size.height))
                 }
             Box(modifier: rootModifier) {
                 guard presentationBounds.value != Rect.Zero else {
